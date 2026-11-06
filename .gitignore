@@ -1,2 +1,8 @@
 /apksource
 .claude
+.DS_Store
+/tvos/staging/
+/tvos/build/
+/tvos/*.xcodeproj/
+__pycache__/
+/tvos/Generated/
