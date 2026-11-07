@@ -2,6 +2,7 @@
 // tvOS apps have no Documents to keep: Library/Caches holds the worlds, the options and the log, and the system may purge it while the app is closed
 // (TVSaves.m keeps a copy of the worlds; TVPort's dm/ios/Sources/main.m does the same for Switch games).
 #import <UIKit/UIKit.h>
+#import <AVFAudio/AVFAudio.h>
 #include <signal.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -24,6 +25,10 @@ static void boot(void) {
         dup2(fileno(stderr), fileno(stdout));
         setvbuf(stdout, NULL, _IOLBF, 0);
     }
+    // A game's sounds: mixed with other audio, quiet when the TV's sound is muted for something else. Set before the game opens OpenAL
+    NSError *audioError = nil;
+    if (![AVAudioSession.sharedInstance setCategory:AVAudioSessionCategoryAmbient error:&audioError] || ![AVAudioSession.sharedInstance setActive:YES error:&audioError])
+        fprintf(stderr, "[RED] boot: the audio session: %s\n", audioError.localizedDescription.UTF8String);
     signal(SIGPIPE, SIG_IGN);   // RakNet's sockets, as the Android build does (NinecraftApp's constructor)
     // The game opens assets/... relative to the working directory, as the SDL build does from its folder
     NSString *resources = NSBundle.mainBundle.resourcePath;

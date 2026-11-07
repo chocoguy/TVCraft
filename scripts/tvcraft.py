@@ -192,10 +192,16 @@ def cmd_sim(args) -> None:
     app = app_path(True)
     if not app.is_dir():
         raise Failure('Build for the simulator first: tvcraft.py build --sim')
-    for step in (['install', udid, app], ['launch', '--terminate-running-process', udid, BUNDLE_ID]):
-        result = run(['xcrun', 'simctl', *step])
-        if result.returncode:
-            raise Failure(result.stderr.strip())
+    # As on a TV (cmd_launch): ending the old copy brings the Home screen back, which can land on top of a launch made at once and suspend it
+    if run(['xcrun', 'simctl', 'terminate', udid, BUNDLE_ID]).returncode == 0:
+        time.sleep(LAUNCH_SETTLE_S)
+    result = run(['xcrun', 'simctl', 'install', udid, app])
+    if result.returncode:
+        raise Failure(result.stderr.strip())
+    env = dict(os.environ, **{f'SIMCTL_CHILD_{k}': v for k, v in (args.env or [])})
+    result = run(['xcrun', 'simctl', 'launch', udid, BUNDLE_ID], env=env)
+    if result.returncode:
+        raise Failure(result.stderr.strip())
     container = run(['xcrun', 'simctl', 'get_app_container', udid, BUNDLE_ID, 'data']).stdout.strip()
     print(f'Launched on {udid}. Log: {container}/{CACHES}/log.txt')
 
@@ -272,7 +278,8 @@ def cmd_launch(args) -> None:
         run(['xcrun', 'devicectl', 'device', 'process', 'terminate', '--device', args.device, '--pid', pid])
     if pids:
         time.sleep(LAUNCH_SETTLE_S)
-    result = run(['xcrun', 'devicectl', 'device', 'process', 'launch', '--device', args.device, BUNDLE_ID])
+    env = ['--environment-variables', json.dumps(dict(args.env))] if getattr(args, 'env', None) else []
+    result = run(['xcrun', 'devicectl', 'device', 'process', 'launch', '--device', args.device, *env, BUNDLE_ID])
     if result.returncode:
         message = result.stdout + result.stderr
         raise Failure('The Apple TV is asleep. Wake it with the remote, then try again.' if 'asleep' in message else message.strip()[-700:])
@@ -441,10 +448,14 @@ def main() -> int:
     sub = parser.add_subparsers(dest='command', required=True)
     p = sub.add_parser('extract'); p.add_argument('--apk'); p.set_defaults(func=cmd_extract)
     p = sub.add_parser('build'); g = p.add_mutually_exclusive_group(); g.add_argument('--sim', action='store_true'); g.add_argument('--device', help='UDID, or "generic"'); p.set_defaults(func=cmd_build)
-    p = sub.add_parser('sim'); p.add_argument('--udid'); p.set_defaults(func=cmd_sim)
+    p = sub.add_parser('sim'); p.add_argument('--udid')
+    p.add_argument('--env', action='append', type=lambda kv: tuple(kv.split('=', 1)), metavar='KEY=VALUE', help='launch environment, e.g. TVCRAFT_SCRIPT=... or TVCRAFT_INPUT_LOG=1')
+    p.set_defaults(func=cmd_sim)
     p = sub.add_parser('devices'); p.set_defaults(func=cmd_devices)
     for name, func in (('install', cmd_install), ('launch', cmd_launch), ('log', cmd_log), ('backup', cmd_backup)):
         p = sub.add_parser(name); p.add_argument('--device', required=True); p.set_defaults(func=func)
+        if name == 'launch':
+            p.add_argument('--env', action='append', type=lambda kv: tuple(kv.split('=', 1)), metavar='KEY=VALUE', help='launch environment, e.g. TVCRAFT_INPUT_LOG=1')
     p = sub.add_parser('restore'); p.add_argument('--device', required=True); p.add_argument('--force', action='store_true'); p.set_defaults(func=cmd_restore)
     p = sub.add_parser('renew'); p.add_argument('--device', required=True); p.add_argument('--force', action='store_true'); p.set_defaults(func=cmd_renew)
     args = parser.parse_args()

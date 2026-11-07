@@ -40,6 +40,44 @@ python3 scripts/tvcraft.py launch --device <UDID>
 
 `log`, `backup`, `restore` and `renew` take `--device` too: `python3 scripts/tvcraft.py --help` lists them all.
 
+## Controls
+
+A game controller plays the game. The Siri Remote works the menus.
+
+| In the game | |
+|---|---|
+| Left stick | Move |
+| Right stick | Look |
+| RT / LT | Mine and attack / use and place |
+| A | Jump (hold it with D-pad up or down to fly up or down) |
+| B or L3 | Sneak (on and off) |
+| X | Inventory |
+| Y | Crafting |
+| LB / RB | Previous / next hotbar slot |
+| D-pad | Walk |
+| Menu | Pause |
+| Options (View) | Third person |
+
+In menus, the left stick (or the remote's touch surface) moves a cursor, and A (or a click) clicks. The D-pad steps through a screen's buttons, and then A presses the highlighted one. B or Back goes back. On the title screen, Back leaves for the Home screen. A text box opens tvOS's keyboard. A Bluetooth keyboard works too: arrows or WASD, Return or Space, and Escape.
+
+## Testing in the simulator
+
+The simulator has no controller to press, so two launch settings help:
+
+- `TVCRAFT_INPUT_LOG=1` logs each press and controller change.
+- `TVCRAFT_SCRIPT` plays input through the same code a controller uses. It is a list of `<seconds> <action> [args]` steps separated by `;`. The actions are:
+  - `pad <button or axis> <value>`, for example `pad rt 1` or `pad ly 0.8`
+  - `cursor <x> <y>` in game pixels (1920×1080)
+  - `mouse 1` and `mouse 0`, which press and release A in a menu
+  - `back`
+  - `log`, which writes the screen, the player's position and the camera angles to the log
+
+```bash
+python3 scripts/tvcraft.py sim --env TVCRAFT_INPUT_LOG=1 --env 'TVCRAFT_SCRIPT=3 cursor 960 640; 3.3 mouse 1; 3.5 mouse 0; 5 log'
+```
+
+That one clicks Play on the title screen and logs the next screen.
+
 ## How it fits together
 
 - `project.yml`: the Xcode project. It compiles the fork's `minecraftpe/impl` (everything except the Android, SDL and DirectSound files), RakNet, jsoncpp, OpenAES, `Sources/` and the staged `pcm_data.c`, and it copies `staging/assets` into the app.
