@@ -18,7 +18,7 @@ python3 scripts/tvcraft.py build --sim
 python3 scripts/tvcraft.py sim
 ```
 
-`extract` copies the game's assets and sounds out of your APK into `tvos/staging`, which git ignores. It checks that the APK's `libminecraftpe.so` is the build the decompilation matches. `sim` installs and launches the app on the booted Apple TV simulator.
+`extract` copies the game's assets and sounds out of your APK into `tvos/staging`, which git ignores, and makes the app icon and Top Shelf images from the icon in the APK (`--icon <image>` uses yours; `tools/tv_icon.swift`, from TVPort). It checks that the APK's `libminecraftpe.so` is the build the decompilation matches. `sim` installs and launches the app on the booted Apple TV simulator.
 
 On an Apple TV, paired with Xcode (**Window > Devices and Simulators**) and with an Apple ID signed in to Xcode:
 
@@ -38,7 +38,7 @@ python3 scripts/tvcraft.py install --device <UDID>
 python3 scripts/tvcraft.py launch --device <UDID>
 ```
 
-`log`, `backup`, `restore` and `renew` take `--device` too: `python3 scripts/tvcraft.py --help` lists them all.
+`log` also sums up the frame rate in a world and the thermal state (the Apple TV has no fan, and tvOS lowers its clocks when it gets hot). `log`, `backup`, `restore` and `renew` take `--device` too: `python3 scripts/tvcraft.py --help` lists them all.
 
 ## Controls
 

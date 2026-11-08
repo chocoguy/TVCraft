@@ -63,6 +63,8 @@ targets:
       - path: ../MCPE-0.8.1-fortv/OpenAES/src/isaac/rand.c
       - path: staging/pcm_data.c          # the sounds, generated from your APK by tvcraft.py extract
         optional: true
+      - path: staging/Assets.xcassets     # the layered icon and Top Shelf images, made by tvcraft.py extract (tools/tv_icon.swift)
+        optional: true
       - path: staging/assets              # copied as <app>/assets: the game reads assets/... relative to the bundle (main.mm changes into it)
         type: folder
         buildPhase: resources
@@ -100,7 +102,7 @@ targets:
       DEVELOPMENT_TEAM: ${TVCRAFT_TEAM}
       CODE_SIGN_STYLE: Automatic
       TARGETED_DEVICE_FAMILY: "3"
-      ASSETCATALOG_COMPILER_APPICON_NAME: ""   # no icon yet (tvOS needs a layered one; milestone 4)
+      ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon   # AppIcon.brandassets: tvOS's layered icon and its Top Shelf images
 schemes:
   TVCraft:
     build:

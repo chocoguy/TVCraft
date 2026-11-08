@@ -7,6 +7,7 @@ Parts of `tvos/Sources` and `scripts/tvcraft.py` follow, or are adapted from, [T
 - the save protection in the app's preferences (`dm/ios/SourcesTV/TVSaves.m`),
 - the controller mapping by position (`dm/ios/Sources/DmGamepad.m`, `dm/host/pad_apple.h`),
 - team discovery, devicectl use, Jetsam reports and save backups (`tvport/backend.py`).
+- the app icon and Top Shelf generator, `tvos/tools/tv_icon.swift` (`dm/ios/tools/tv_icon.swift`, copied unchanged).
 
 ```
 MIT License

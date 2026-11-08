@@ -44,6 +44,8 @@ static void audio_active(BOOL on) {
     UITapGestureRecognizer *_backPress;
     CFTimeInterval _lastFrame, _lastSync;
     BOOL _hadLevel;
+    CFTimeInterval _statsStart, _slowest;   // frame statistics, logged every 600 frames
+    int _statsFrames, _slowFrames;
     BOOL _atRoot, _alertUp;
     UIAlertController *_keyboardAlert;
 }
@@ -280,6 +282,15 @@ static std::string utf8(NSString *s) { return s ? std::string(s.UTF8String) : st
     g_mc->setSize(_width, _height);
     tv_input_attach(self.view);
 
+    // The Apple TV has no fan: when tvOS reports serious it lowers the clocks itself (TVPort, tvport/README.md). Log each change with the time since launch
+    static const char *thermal[] = {"nominal", "fair", "serious", "critical"};
+    CFTimeInterval launched = CACurrentMediaTime();
+    fprintf(stderr, "power: thermal state %s\n", thermal[NSProcessInfo.processInfo.thermalState & 3]);
+    [NSNotificationCenter.defaultCenter addObserverForName:NSProcessInfoThermalStateDidChangeNotification object:nil queue:nil usingBlock:^(NSNotification *n) {
+        (void)n;
+        fprintf(stderr, "power: thermal state %s (%.0f s after launch)\n", thermal[NSProcessInfo.processInfo.thermalState & 3], CACurrentMediaTime() - launched);
+    }];
+
     _link = [CADisplayLink displayLinkWithTarget:self selector:@selector(frame:)];
     _link.preferredFrameRateRange = CAFrameRateRangeMake(60, 60, 60);
     [_link addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
@@ -287,6 +298,16 @@ static std::string utf8(NSString *s) { return s ? std::string(s.UTF8String) : st
 
 - (void)frame:(CADisplayLink *)link {
     double dt = _lastFrame ? fmin(link.timestamp - _lastFrame, 0.1) : 1.0 / 60;
+    if (_lastFrame) {   // frames: the rate, the slowest, and how many missed a refresh (over 1.5 frames at 60 Hz)
+        double gap = link.timestamp - _lastFrame;
+        if (!_statsStart) _statsStart = _lastFrame;
+        _statsFrames++; _slowest = fmax(_slowest, gap); if (gap > 0.025) _slowFrames++;
+        if (_statsFrames == 600) {
+            fprintf(stderr, "frames: %.1f fps over %.0f s, slowest %.0f ms, %d slow, %s\n", _statsFrames / (link.timestamp - _statsStart), link.timestamp - _statsStart,
+                    _slowest * 1000, _slowFrames, g_mc->level ? "in a world" : "in menus");
+            _statsStart = link.timestamp; _statsFrames = _slowFrames = 0; _slowest = 0;
+        }
+    }
     _lastFrame = link.timestamp;
     [EAGLContext setCurrentContext:_context];
     glBindFramebufferOES(GL_FRAMEBUFFER_OES, _framebuffer);
@@ -316,6 +337,7 @@ static std::string utf8(NSString *s) { return s ? std::string(s.UTF8String) : st
 
 - (void)appDidBecomeActive {
     _lastFrame = 0;
+    _statsStart = 0; _statsFrames = _slowFrames = 0; _slowest = 0;
     audio_active(YES);
     _link.paused = NO;
 }

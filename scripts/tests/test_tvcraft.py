@@ -76,6 +76,13 @@ class Logs(unittest.TestCase):
         self.assertIn('OpenGL: OpenGL ES-CM 1.1 APPLE on Apple A15 GPU', lines)
         self.assertTrue(any('1 [RED] lines' in line for line in lines))
 
+    def test_frames_and_heat(self):
+        log = ('gl: GL_VERSION: x\npower: thermal state nominal\nframes: 59.8 fps over 10 s, slowest 40 ms, 2 slow, in a world\n'
+               'frames: 57.1 fps over 10 s, slowest 90 ms, 9 slow, in a world\nframes: 60.0 fps over 10 s, slowest 17 ms, 0 slow, in menus\npower: thermal state fair (300 s after launch)\n')
+        lines = tvcraft.summarise_log(log)
+        self.assertIn('In a world: 57 to 60 fps over 20 s, the slowest frame 90 ms', lines)
+        self.assertIn('Thermal state: fair at the end', lines)
+
     def test_no_gl(self):
         self.assertIn('did not get as far', tvcraft.summarise_log('boot: TVCraft\n')[0])
 

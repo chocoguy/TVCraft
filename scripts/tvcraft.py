@@ -40,6 +40,7 @@ BACKUPS = TVOS / 'save-backups'
 APK_DIR = ROOT / 'apksource'
 
 LIB_IN_APK = 'lib/armeabi-v7a/libminecraftpe.so'
+DEFAULT_ICON = 'assets/app/ios/icons/mcpe_ios_icon.png'   # in the APK: the iOS app's 512x512 icon
 LIB_SHA1 = 'c30bd6e3b72be7b97a222d79d1405b55f6d3bf71'   # the build tools/get_sound_data.py's offsets were taken from
 BUNDLE_ID = os.environ.get('TVCRAFT_BUNDLE_ID', 'io.github.chocoguy.tvcraft')
 SCHEME = 'TVCraft'
@@ -111,6 +112,18 @@ def cmd_extract(args) -> None:
         STAGING.mkdir(parents=True, exist_ok=True)
         shutil.move(str(Path(folder) / 'pcm_data.c'), STAGING / 'pcm_data.c')
     print(f'Sounds: {(STAGING / "pcm_data.c").stat().st_size / 2**20:.1f} MB of C in {(STAGING / "pcm_data.c").relative_to(ROOT)}')
+    make_icon(Path(args.icon).expanduser() if args.icon else STAGING / DEFAULT_ICON)
+
+
+def make_icon(image: Path) -> None:
+    """tvOS's layered app icon and Top Shelf banners from one image, by TVPort's tv_icon.swift, into tvos/staging/Assets.xcassets."""
+    if not image.is_file():
+        raise Failure(f'No icon image at {image}')
+    catalog = STAGING / 'Assets.xcassets'
+    result = run(['xcrun', 'swift', TVOS / 'tools/tv_icon.swift', image, catalog])
+    if result.returncode:
+        raise Failure(f'tv_icon.swift: {result.stderr.strip()[-500:]}')
+    print(f'Icon and Top Shelf: from {image.name} in {catalog.relative_to(ROOT)}')
 
 
 # ---------- build ----------
@@ -140,7 +153,7 @@ def known_team() -> str:
 
 
 def check_staged() -> None:
-    if not (STAGING / 'pcm_data.c').is_file() or not (STAGING / 'assets').is_dir():
+    if not (STAGING / 'pcm_data.c').is_file() or not (STAGING / 'assets').is_dir() or not (STAGING / 'Assets.xcassets').is_dir():
         raise Failure('Run "tvcraft.py extract" first: the game files are not staged')
     if not (FORK / 'RakNet/Source').is_dir():
         raise Failure('The fork\'s submodules are missing: run "git submodule update --init --recursive"')
@@ -313,6 +326,13 @@ def summarise_log(text: str) -> list:
         out.append(f'OpenGL: {version[1].strip()} on {renderer[1].strip() if renderer else "?"}')
     else:
         out.append('The game did not get as far as creating its OpenGL context.')
+    frames = re.findall(r'frames: ([\d.]+) fps over \d+ s, slowest (\d+) ms, (\d+) slow, in a world', text)
+    if frames:
+        rates = [float(f[0]) for f in frames]
+        out.append(f'In a world: {min(rates):.0f} to {max(rates):.0f} fps over {len(frames) * 10} s, the slowest frame {max(int(f[1]) for f in frames)} ms')
+    heat = re.findall(r'power: thermal state (\w+)', text)
+    if heat:
+        out.append(f'Thermal state: {heat[-1]} at the end' + (', reached serious' if 'serious' in heat or 'critical' in heat else ''))
     reds = [line for line in text.splitlines() if line.startswith('[RED]')]
     if reds:
         out.append(f'{len(reds)} [RED] lines, the last: {reds[-1]}')
@@ -446,7 +466,8 @@ def cmd_renew(args) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest='command', required=True)
-    p = sub.add_parser('extract'); p.add_argument('--apk'); p.set_defaults(func=cmd_extract)
+    p = sub.add_parser('extract'); p.add_argument('--apk'); p.add_argument('--icon', help='an image for the app icon and Top Shelf (default: the icon in the APK)')
+    p.set_defaults(func=cmd_extract)
     p = sub.add_parser('build'); g = p.add_mutually_exclusive_group(); g.add_argument('--sim', action='store_true'); g.add_argument('--device', help='UDID, or "generic"'); p.set_defaults(func=cmd_build)
     p = sub.add_parser('sim'); p.add_argument('--udid')
     p.add_argument('--env', action='append', type=lambda kv: tuple(kv.split('=', 1)), metavar='KEY=VALUE', help='launch environment, e.g. TVCRAFT_SCRIPT=... or TVCRAFT_INPUT_LOG=1')
