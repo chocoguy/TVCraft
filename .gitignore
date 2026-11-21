@@ -6,5 +6,5 @@
 /tvos/*.xcodeproj/
 __pycache__/
 /tvos/Generated/
-.DS_Store
-.DS_Store
+/tvos/save-backups/
+/build/

@@ -1,4 +1,4 @@
-# TVCraft: Minecraft PE 0.8.1 for Apple TV (xcodegen). scripts/tvcraft.py build generates and builds it; run "tvcraft.py extract" first.
+# TVCraft: Minecraft PE 0.8.1 for Apple TV (xcodegen). scripts/tvcraft.py build generates and builds it; run "tvcraft.py prepare" (or extract) first.
 # Modelled on TVPort's dm/ios/project_tv.yml. The game code is the MCPE-0.8.1-fortv submodule; the assets and sounds come from your own APK (tvos/staging).
 name: TVCraft
 options:
@@ -12,14 +12,14 @@ settings:
     GCC_C_LANGUAGE_STANDARD: gnu11
     USE_HEADERMAP: NO                       # the game has headers named like system and library ones; only the search paths below decide
     ALWAYS_SEARCH_USER_PATHS: NO
-    HEADER_SEARCH_PATHS:
-      - $(SRCROOT)/shim
-      - $(SRCROOT)/../MCPE-0.8.1-fortv/minecraftpe/headers
-      - $(SRCROOT)/../MCPE-0.8.1-fortv/glm
-      - $(SRCROOT)/../MCPE-0.8.1-fortv/OpenAES/inc
-      - $(SRCROOT)/../MCPE-0.8.1-fortv/RakNet/Source
-      - $(SRCROOT)/../MCPE-0.8.1-fortv/jsoncpp/jsoncpp/include
-      - $(SRCROOT)/../MCPE-0.8.1-fortv/jsoncpp/jsoncpp/src/lib_json
+    HEADER_SEARCH_PATHS:                    # quoted: the installer builds under "Application Support"
+      - '"$(SRCROOT)/shim"'
+      - '"$(SRCROOT)/../MCPE-0.8.1-fortv/minecraftpe/headers"'
+      - '"$(SRCROOT)/../MCPE-0.8.1-fortv/glm"'
+      - '"$(SRCROOT)/../MCPE-0.8.1-fortv/OpenAES/inc"'
+      - '"$(SRCROOT)/../MCPE-0.8.1-fortv/RakNet/Source"'
+      - '"$(SRCROOT)/../MCPE-0.8.1-fortv/jsoncpp/jsoncpp/include"'
+      - '"$(SRCROOT)/../MCPE-0.8.1-fortv/jsoncpp/jsoncpp/src/lib_json"'
     GCC_PREPROCESSOR_DEFINITIONS:
       - $(inherited)
       - USEGLES                    # OpenGL ES 1.1, as on Android
@@ -41,6 +41,11 @@ settings:
     ENABLE_BITCODE: NO
     DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
     EXCLUDED_ARCHS[sdk=appletvsimulator*]: x86_64   # Apple silicon Macs only
+    # Version stamp. tvcraft.py build overrides all four from port.json and git; these are for builds made straight from Xcode.
+    MARKETING_VERSION: "0.0.0"          # CFBundleShortVersionString: the numeric part of the port's version
+    CURRENT_PROJECT_VERSION: "0"        # CFBundleVersion: major*10000 + minor*100 + patch
+    TVCRAFT_VERSION: "dev"              # the full version, -rc1 included (TVCraftVersion)
+    TVCRAFT_COMMIT: "unknown"           # the short commit hash (TVCraftCommit)
 targets:
   TVCraft:
     type: application
@@ -61,11 +66,12 @@ targets:
       - path: ../MCPE-0.8.1-fortv/OpenAES/src/oaes_lib.c
         compilerFlags: "-Wno-incompatible-function-pointer-types -Wno-int-conversion"
       - path: ../MCPE-0.8.1-fortv/OpenAES/src/isaac/rand.c
-      - path: staging/pcm_data.c          # the sounds, generated from your APK by tvcraft.py extract
+      # ${TVCRAFT_STAGING} is tvos/staging, or <work dir>/staging with tvcraft.py --work-dir (set by tvcraft.py when it generates the project)
+      - path: ${TVCRAFT_STAGING}/pcm_data.c          # the sounds, generated from your APK by tvcraft.py prepare
         optional: true
-      - path: staging/Assets.xcassets     # the layered icon and Top Shelf images, made by tvcraft.py extract (tools/tv_icon.swift)
+      - path: ${TVCRAFT_STAGING}/Assets.xcassets     # the layered icon and Top Shelf images, made by tvcraft.py prepare (tools/tv_icon.swift)
         optional: true
-      - path: staging/assets              # copied as <app>/assets: the game reads assets/... relative to the bundle (main.mm changes into it)
+      - path: ${TVCRAFT_STAGING}/assets              # copied as <app>/assets: the game reads assets/... relative to the bundle (main.mm changes into it)
         type: folder
         buildPhase: resources
         optional: true
@@ -83,8 +89,11 @@ targets:
       path: Generated/Info.plist   # written by xcodegen (git-ignored)
       properties:
         CFBundleDisplayName: Minecraft PE
-        CFBundleShortVersionString: "0.8.1"
-        CFBundleVersion: "1"
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        TVCraftVersion: $(TVCRAFT_VERSION)       # what tvcraft.py installed and the installer read back
+        TVCraftCommit: $(TVCRAFT_COMMIT)
+        TVCraftGameVersion: "0.8.1"              # the game's own version
         UIRequiredDeviceCapabilities: [arm64]
         GCSupportsControllerUserInteraction: true   # physical controllers (GameController)
         GCSupportedGameControllers:

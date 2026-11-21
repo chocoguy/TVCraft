@@ -3,11 +3,11 @@
 Minecraft PE 0.8.1 (the `MCPE-0.8.1-fortv` decompilation) as a tvOS app. You need a Mac with Xcode and its tvOS platform, [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`), and your own Minecraft PE 0.8.1 APK in `apksource/`.
 
 ```bash
-git submodule update --init --recursive
+git submodule update --init --recursive MCPE-0.8.1-fortv
 ```
 
 ```bash
-python3 scripts/tvcraft.py extract
+python3 scripts/tvcraft.py prepare
 ```
 
 ```bash
@@ -18,7 +18,7 @@ python3 scripts/tvcraft.py build --sim
 python3 scripts/tvcraft.py sim
 ```
 
-`extract` copies the game's assets and sounds out of your APK into `tvos/staging`, which git ignores, and makes the app icon and Top Shelf images from the icon in the APK (`--icon <image>` uses yours; `tools/tv_icon.swift`, from TVPort). It checks that the APK's `libminecraftpe.so` is the build the decompilation matches. `sim` installs and launches the app on the booted Apple TV simulator.
+`prepare` copies the game's assets and sounds out of your APK into `tvos/staging`, which git ignores, and makes the app icon and Top Shelf images from the icon in the APK (`--icon <image>` uses yours; `tools/tv_icon.swift`, from TVPort). It checks that the APK's `libminecraftpe.so` is the build the decompilation matches. `prepare` remembers the APK it read (by path, size and date), so running it again is instant; `extract` always reads it again. `sim` installs and launches the app on the booted Apple TV simulator. `check` lists what's missing on this Mac.
 
 On an Apple TV, paired with Xcode (**Window > Devices and Simulators**) and with an Apple ID signed in to Xcode:
 
@@ -38,7 +38,13 @@ python3 scripts/tvcraft.py install --device <UDID>
 python3 scripts/tvcraft.py launch --device <UDID>
 ```
 
+The app's bundle ID is `io.github.chocoguy.tvcraft.<team ID>` (bundle IDs are global, so every team needs its own); `--bundle-id` or `TVCRAFT_BUNDLE_ID` overrides it, and `--team` or `TVCRAFT_TEAM` picks the team. `install` backs up the worlds on the TV into `tvos/save-backups` first. `installed` shows the version on the TV.
+
 `log` also sums up the frame rate in a world and the thermal state (the Apple TV has no fan, and tvOS lowers its clocks when it gets hot). `log`, `backup`, `restore` and `renew` take `--device` too: `python3 scripts/tvcraft.py --help` lists them all.
+
+## The build engine
+
+`scripts/tvcraft.py` is also the engine TVCraft Installer runs, from the release tag it checked out. With `--json`, every stdout line is one event (`stage`, `progress`, `check`, `error`, `warning`, `note`, `result`, `installed`) and the tools' own output goes to stderr. `--work-dir` moves the staged files, the build and the backups out of `tvos/`; `--xcodegen` names the XcodeGen binary. The version stamp (`CFBundleShortVersionString`, `CFBundleVersion`, `TVCraftVersion`, `TVCraftCommit`, `TVCraftGameVersion`) comes from `port.json` and git. Its tests: `python3 -I scripts/tests/test_tvcraft.py`.
 
 ## Controls
 
@@ -80,7 +86,7 @@ That one clicks Play on the title screen and logs the next screen.
 
 ## How it fits together
 
-- `project.yml`: the Xcode project. It compiles the fork's `minecraftpe/impl` (everything except the Android, SDL and DirectSound files), RakNet, jsoncpp, OpenAES, `Sources/` and the staged `pcm_data.c`, and it copies `staging/assets` into the app.
+- `project.yml`: the Xcode project. It compiles the fork's `minecraftpe/impl` (everything except the Android, SDL and DirectSound files), RakNet, jsoncpp, OpenAES, `Sources/` and the staged `pcm_data.c`, and it copies the staged `assets` into the app. The staging folder comes from `TVCRAFT_STAGING`, which `tvcraft.py` sets.
 - `Sources/main.mm`: sends the log to `Library/Caches/log.txt` and changes into the app's resources, so the game finds `assets/...` as the SDL build does.
 - `Sources/GameViewController.mm`: an OpenGL ES 1.1 view at 1920×1080, the 60 fps frame loop, and the Back button.
 - `MCPE-0.8.1-fortv/minecraftpe/impl/tvos/AppPlatform_tvos.cpp`: the game's platform class for tvOS.

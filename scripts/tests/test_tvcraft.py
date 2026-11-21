@@ -1,8 +1,12 @@
 """Tests for scripts/tvcraft.py's pure functions. They need no Apple TV, no APK and no Xcode: python3 -I scripts/tests/test_tvcraft.py"""
+import io
 import json
+import os
 import sys
 import tempfile
 import unittest
+import zipfile
+from contextlib import redirect_stdout
 from datetime import date
 from pathlib import Path
 
@@ -92,6 +96,104 @@ class Logs(unittest.TestCase):
             (Path(folder) / 'JetsamEvent-2026-11-06.ips').write_text('{"header": 1}\n' + json.dumps(report))
             kills = tvcraft.read_jetsam(Path(folder))
             self.assertEqual(kills, [{'time': '2026-11-06 10:00:00', 'reason': 'per-process-limit', 'mb': 100}])
+
+
+class Engine(unittest.TestCase):
+    """The parts TVCraft Installer depends on: events, versions, bundle IDs, the work dir and the prepare stamp."""
+
+    def setUp(self):
+        self.saved = (tvcraft.STAGING, tvcraft.BUILD, tvcraft.BACKUPS, tvcraft.JSON, os.environ.get('PATH'))
+
+    def tearDown(self):
+        tvcraft.STAGING, tvcraft.BUILD, tvcraft.BACKUPS, tvcraft.JSON, path = self.saved
+        os.environ['PATH'] = path
+
+    def events(self, func, *args, **kwargs) -> list:
+        tvcraft.JSON = True
+        out = io.StringIO()
+        with redirect_stdout(out):
+            func(*args, **kwargs)
+        return [json.loads(line) for line in out.getvalue().splitlines()]
+
+    def test_events_are_json_lines(self):
+        events = self.events(tvcraft.emit, 'check', id='xcode', label='Xcode', ok=False, detail='none', fix='Install it')
+        self.assertEqual(events, [{'event': 'check', 'id': 'xcode', 'label': 'Xcode', 'ok': False, 'detail': 'none', 'fix': 'Install it'}])
+
+    def test_failure_becomes_error_event(self):
+        tvcraft.JSON = True
+        out = io.StringIO()
+        with tempfile.TemporaryDirectory() as folder, redirect_stdout(out):
+            status = tvcraft.main(['prepare', '--json', '--work-dir', folder, '--apk', str(Path(folder) / 'missing.apk')])
+        self.assertEqual(status, 1)
+        event = json.loads(out.getvalue().splitlines()[-1])
+        self.assertEqual((event['event'], event['code']), ('error', 'apk-missing'))
+        self.assertTrue(event['fix'])
+
+    def test_versions(self):
+        self.assertEqual(tvcraft.numeric_version('v1.2.3-rc1'), (1, 2, 3))
+        self.assertEqual(tvcraft.numeric_version('1.0'), (1, 0, 0))
+        self.assertEqual(tvcraft.build_number('1.2.3'), 10203)
+        self.assertEqual(tvcraft.build_number('v10.0.0-rc2'), 100000)
+
+    def test_port_json(self):
+        info = tvcraft.port_info()
+        self.assertEqual(info['entry'], 'scripts/tvcraft.py')
+        self.assertEqual(info['submodules'], ['MCPE-0.8.1-fortv'])   # never MCPE-1.1.5-decomp
+        self.assertGreaterEqual(tvcraft.numeric_version(info['version']), tvcraft.numeric_version(info['minAppVersion']))
+        self.assertEqual(info['inputs'][0]['accept'][0]['libSha1'], tvcraft.LIB_SHA1)
+
+    def test_bundle_id_per_team(self):
+        self.assertEqual(tvcraft.team_bundle_id('ABCDE12345'), 'io.github.chocoguy.tvcraft.ABCDE12345')
+        self.assertEqual(tvcraft.team_bundle_id(''), 'io.github.chocoguy.tvcraft')
+
+    def test_free_teams(self):
+        prefs = {'IDEProvisioningTeamByIdentifier': {'a': [{'teamID': 'PAID1'}, {'teamID': 'FREE1', 'isFreeProvisioningTeam': True}]}}
+        self.assertEqual(tvcraft.free_teams(prefs), {'FREE1'})
+
+    def test_work_dir_and_path(self):
+        with tempfile.TemporaryDirectory() as folder:
+            work = Path(folder) / 'Application Support' / 'work'
+            os.environ['PATH'] = '/usr/bin:/bin'
+            tvcraft.configure(str(work), '/opt/tools/xcodegen/bin/xcodegen')
+            self.assertEqual(tvcraft.STAGING, work.resolve() / 'staging')
+            self.assertEqual(tvcraft.BUILD, work.resolve() / 'build')
+            self.assertEqual(tvcraft.BACKUPS, work.resolve() / 'save-backups')
+            path = os.environ['PATH'].split(':')
+            self.assertEqual(path[:3], ['/opt/tools/xcodegen/bin', '/opt/homebrew/bin', '/usr/local/bin'])
+            self.assertEqual(path[-2:], ['/usr/bin', '/bin'])
+
+    def test_prepare_stamp(self):
+        with tempfile.TemporaryDirectory() as folder:
+            apk = Path(folder) / 'game.apk'
+            apk.write_bytes(b'one')
+            first = tvcraft.prepare_stamp(apk, None)
+            self.assertEqual(first, tvcraft.prepare_stamp(apk, None))
+            self.assertNotEqual(first, tvcraft.prepare_stamp(apk, 'icon.png'))
+            apk.write_bytes(b'longer')
+            self.assertNotEqual(first, tvcraft.prepare_stamp(apk, None))
+
+    def test_wrong_apk(self):
+        with tempfile.TemporaryDirectory() as folder:
+            apk = Path(folder) / 'other.apk'
+            with zipfile.ZipFile(apk, 'w') as z:
+                z.writestr(tvcraft.LIB_IN_APK, b'not the game')
+            with self.assertRaises(tvcraft.Failure) as caught:
+                tvcraft.read_game_library(apk)
+            self.assertEqual(caught.exception.code, 'apk-wrong')
+            (Path(folder) / 'text.apk').write_text('hello')
+            with self.assertRaises(tvcraft.Failure) as caught:
+                tvcraft.read_game_library(Path(folder) / 'text.apk')
+            self.assertEqual(caught.exception.code, 'apk-unreadable')
+
+    def test_explain_build_failures(self):
+        failure = tvcraft.explain(['** BUILD FAILED **', "error: No Account for Team 'X'."], 'b')
+        self.assertEqual(failure.code, 'xcode-account')
+        failure = tvcraft.explain(['foo.cpp:1: error: expected ;'], 'b')
+        self.assertEqual((failure.code, failure.message), ('build-failed', 'foo.cpp:1: error: expected ;'))
+
+    def test_options_after_command(self):
+        args = tvcraft.parser().parse_args(['build', '--platform', 'tvos', '--disc', 'x.apk', '--device', 'D1', '--work-dir', 'w', '--json'])
+        self.assertEqual((args.apk, args.device, args.work_dir, args.json, args.platform), ('x.apk', 'D1', 'w', True, 'tvos'))
 
 
 if __name__ == '__main__':

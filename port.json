@@ -1,0 +1,94 @@
+{
+  "schema": 1,
+  "id": "tvcraft",
+  "name": "TVCraft",
+  "game": "Minecraft: Pocket Edition 0.8.1 (Android, armeabi-v7a)",
+  "version": "1.0.0",
+  "minAppVersion": "1.0.0",
+
+  "entry": "scripts/tvcraft.py",
+  "commands": ["check", "prepare", "build", "install", "installed", "clean"],
+  "submodules": ["MCPE-0.8.1-fortv"],
+
+  "requirements": {
+    "macOS": "26.0",
+    "arch": "arm64",
+    "xcode": "27.0",
+    "platforms": ["tvOS"],
+    "tools": ["xcodegen"],
+    "network": "the installer downloads XcodeGen from GitHub once",
+    "diskGB": 2,
+    "firstBuildMinutes": 10
+  },
+
+  "account": {
+    "minimum": "free",
+    "capabilities": [],
+    "bundleId": "io.github.chocoguy.tvcraft.{team}",
+    "note": "A free Apple ID works; its installs open for 7 days, then Reinstall renews them."
+  },
+
+  "devices": {
+    "family": "appletv",
+    "minOS": "26.0"
+  },
+
+  "inputs": [
+    {
+      "id": "apk",
+      "label": "Minecraft PE 0.8.1 APK",
+      "help": "The Android APK of Minecraft: Pocket Edition 0.8.1 (armeabi-v7a) from your own copy of the game.",
+      "kind": "file",
+      "extensions": ["apk"],
+      "required": true,
+      "accept": [
+        { "name": "0.8.1 (500801011), armeabi-v7a", "libSha1": "c30bd6e3b72be7b97a222d79d1405b55f6d3bf71" }
+      ],
+      "verifiedBy": "check"
+    }
+  ],
+
+  "options": [
+    {
+      "id": "inputLog",
+      "label": "Log every controller press",
+      "type": "bool",
+      "default": false,
+      "appliesAt": "launch",
+      "env": { "TVCRAFT_INPUT_LOG": "1" }
+    }
+  ],
+
+  "stages": [
+    { "id": "apk", "label": "Reading your APK", "command": "prepare" },
+    { "id": "sounds", "label": "Extracting the sounds", "command": "prepare" },
+    { "id": "icon", "label": "Making the icon and Top Shelf images", "command": "prepare" },
+    { "id": "configure", "label": "Setting up the Xcode project", "command": "build" },
+    { "id": "compile", "label": "Compiling the game", "command": "build" },
+    { "id": "backup", "label": "Backing up your worlds", "command": "install" },
+    { "id": "install", "label": "Installing on the Apple TV", "command": "install" }
+  ],
+
+  "artifact": {
+    "app": "TVCraft.app",
+    "sizeGB": 0.02
+  },
+
+  "saves": {
+    "strategy": "local",
+    "note": "Worlds stay on the Apple TV: in the app's caches, with a copy in its settings that brings them back if tvOS clears the caches. The installer backs them up to this Mac before every install. Deleting the app deletes them."
+  },
+
+  "logs": {
+    "process": "TVCraft",
+    "files": ["Library/Caches/log.txt"],
+    "console": false
+  },
+
+  "diagnose": [
+    {
+      "match": "The game did not get as far as creating its OpenGL context",
+      "message": "The game stopped before it could draw. Build and install it again."
+    }
+  ]
+}

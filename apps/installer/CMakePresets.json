@@ -1,0 +1,29 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 28, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "xcode",
+      "displayName": "TVCraft Installer (Xcode)",
+      "description": "Generates build/xcode-installer/TVCraftInstaller.xcodeproj: the app, signed ad hoc, without Sparkle updates",
+      "generator": "Xcode",
+      "binaryDir": "${sourceDir}/../../build/xcode-installer"
+    },
+    {
+      "name": "tests",
+      "displayName": "Installer logic tests (Ninja)",
+      "description": "The installer's UI-free files and their tests, in build/installer-tests",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/../../build/installer-tests",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "xcode", "configurePreset": "xcode", "configuration": "Debug", "targets": ["TVCraftInstaller"] },
+    { "name": "xcode-release", "configurePreset": "xcode", "configuration": "Release", "targets": ["TVCraftInstaller"] },
+    { "name": "tests", "configurePreset": "tests", "targets": ["tvcraft_installertest"] }
+  ],
+  "testPresets": [
+    { "name": "tests", "configurePreset": "tests", "output": { "outputOnFailure": true } }
+  ]
+}
