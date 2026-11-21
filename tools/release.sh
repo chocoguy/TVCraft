@@ -131,7 +131,14 @@ if min_app:
 json.loads(text)
 path.write_text(text)
 EOF
-act git commit --quiet -am "Release $version"
+# port.json may already say this version (bumped by hand): then there's nothing to commit, and the
+# tag goes on the current commit. (git commit with nothing to commit fails, which set -e turns into
+# a silent stop.)
+if git diff --quiet -- port.json; then
+    echo "   port.json already says $version: tagging the current commit"
+else
+    act git commit --quiet -am "Release $version"
+fi
 act git tag -a "$tag" -m "TVCraft $version"
 if [ "$dry" = 1 ]; then
     grep -E '"(version|minAppVersion)"' port.json | sed 's/^/   would be: /'
