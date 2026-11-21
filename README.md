@@ -1,9 +1,9 @@
 # TVCraft
 ## A port of Minecraft PE for the Apple TV
 
-Minecraft PE ported to the Apple TV
-
 No original game files or assets are included in this repo
+
+It's a port of Minecraft PE 0.8.1, With a long term goal of Minecraft PE 1.1.5
 
 
 Under construction

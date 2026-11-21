@@ -1,3 +1,6 @@
 [submodule "MCPE-0.8.1-fortv"]
 	path = MCPE-0.8.1-fortv
 	url = https://github.com/chocoguy/MCPE-0.8.1-fortv.git
+[submodule "MCPE-1.1.5-decomp"]
+	path = MCPE-1.1.5-decomp
+	url = https://github.com/chocoguy/MCPE-1.1.5-decomp.git
