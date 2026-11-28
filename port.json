@@ -3,8 +3,8 @@
   "id": "tvcraft",
   "name": "TVCraft",
   "game": "Minecraft: Pocket Edition 0.8.1 (Android, armeabi-v7a)",
-  "version": "1.0.1",
-  "minAppVersion": "1.0.0",
+  "version": "2.0.0",
+  "minAppVersion": "2.0.0",
 
   "entry": "scripts/tvcraft.py",
   "commands": ["check", "prepare", "build", "install", "installed", "clean"],
