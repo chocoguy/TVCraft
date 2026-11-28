@@ -5,7 +5,7 @@
     {
       "name": "xcode",
       "displayName": "TVCraft Installer (Xcode)",
-      "description": "Generates build/xcode-installer/TVCraftInstaller.xcodeproj: the app, signed ad hoc, without Sparkle updates",
+      "description": "Generates build/xcode-installer/TVCraftInstaller.xcodeproj: the app, signed ad hoc",
       "generator": "Xcode",
       "binaryDir": "${sourceDir}/../../build/xcode-installer"
     },

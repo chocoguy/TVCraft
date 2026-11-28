@@ -45,6 +45,31 @@ do {
     check(false, "releases parse: \(error)")
 }
 
+// The major version is the installer: it builds only its own major's releases, and a later major
+// (pre-releases only when asked) needs a new installer.
+let majors = """
+[
+  {"tag_name": "v1.0.0", "name": "", "body": "", "prerelease": false, "draft": false},
+  {"tag_name": "v1.2.1", "name": "", "body": "", "prerelease": false, "draft": false},
+  {"tag_name": "v2.0.0-rc1", "name": "", "body": "", "prerelease": true, "draft": false},
+  {"tag_name": "v2.1.0", "name": "", "body": "", "prerelease": false, "draft": true},
+  {"tag_name": "v1.3.0-rc1", "name": "", "body": "", "prerelease": true, "draft": false}
+]
+"""
+do {
+    let all = try Releases.parse(Data(majors.utf8))
+    check(Releases.compatible(all, installerMajor: 1, prereleases: false).map(\.tag) == ["v1.2.1", "v1.0.0"], "compatible")
+    check(Releases.compatible(all, installerMajor: 1, prereleases: true).map(\.tag) == ["v1.3.0-rc1", "v1.2.1", "v1.0.0"],
+          "compatible with pre-releases")
+    check(Releases.compatible(all, installerMajor: 2, prereleases: false).isEmpty, "2.x: no releases yet (draft, pre-release)")
+    check(Releases.compatible(all, installerMajor: 2, prereleases: true).map(\.tag) == ["v2.0.0-rc1"], "2.x pre-release")
+    check(Releases.needingNewerInstaller(all, installerMajor: 1, prereleases: false) == nil, "a pre-release of 2 doesn't count")
+    check(Releases.needingNewerInstaller(all, installerMajor: 1, prereleases: true)?.tag == "v2.0.0-rc1", "newer major")
+    check(Releases.needingNewerInstaller(all, installerMajor: 2, prereleases: true) == nil, "none newer than 2")
+} catch {
+    check(false, "majors parse: \(error)")
+}
+
 // Saved state: round trip, and recording replaces an install with the same ID.
 let folder = FileManager.default.temporaryDirectory.appendingPathComponent("installertest-\(UUID())")
 let workspace = Workspace(root: folder)
@@ -69,6 +94,19 @@ check(saved.contains("\"platform\" : \"tvos\"") && saved.contains("\"apk\""), "s
 check(workspace.engine.path.hasSuffix("/source/scripts/tvcraft.py"), "engine path")
 check(workspace.worldBackups.path.hasSuffix("/work/save-backups"), "world backups path")
 check(Workspace().root.path.hasSuffix("/Library/Application Support/TVCraft Installer"), "default workspace")
+check(workspace.rebuildable.path.hasSuffix("/work/build"), "rebuildable is the Xcode build")
+check(!workspace.rebuildable.path.contains(".app/"), "never inside the app")
+
+// Storage: the folder's allocated size, and Free Up Space's folder.
+let sizeBefore = workspace.size()
+check(sizeBefore > 0, "the state file counts")
+try? FileManager.default.createDirectory(at: workspace.rebuildable, withIntermediateDirectories: true)
+try? Data(count: 1_000_000).write(to: workspace.rebuildable.appendingPathComponent("big"))
+let sizeWith = workspace.size()
+check(sizeWith >= sizeBefore + 1_000_000, "a 1 MB file adds at least 1 MB (\(sizeBefore) -> \(sizeWith))")
+try? FileManager.default.removeItem(at: workspace.rebuildable)
+check(workspace.size() == sizeBefore, "freeing the rebuildable folder")
+check(Workspace(root: folder.appendingPathComponent("missing")).size() == 0, "a missing folder is 0")
 try? FileManager.default.removeItem(at: folder)
 
 // port.json at a tag: the installer it needs, and the submodules to download (only those).

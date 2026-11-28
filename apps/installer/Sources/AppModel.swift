@@ -49,8 +49,11 @@ final class AppModel: ObservableObject {
     /// What each install reports now (tvcraft.py installed), by install ID: its version, "Not installed",
     /// or "Not reachable".
     @Published var reported: [String: String] = [:]
-    /// A release needs this installer version or later (its port.json's minAppVersion).
-    @Published var needsInstaller: SemVer?
+    /// Shown once per launch when a release of a later major version is out (it needs its own installer).
+    @Published var showNewInstallerAlert = false
+    private var alertedNewInstaller = false
+    /// What the workspace folder takes on disk (allocated bytes), measured on launch and after each job.
+    @Published var storageSize: Int64?
     /// The Apple TVs paired with this Mac (devicectl).
     @Published var devices: [Device] = []
     @Published var loadingDevices = false
@@ -68,11 +71,28 @@ final class AppModel: ObservableObject {
         SemVer(Bundle.main.object(forInfoDictionaryKey: "TVCraftVersion") as? String ?? "") ?? SemVer("0.0.1")!
     }
 
+    /// The installer builds only releases of its own major version (it was built for release N.0.0).
+    var installerMajor: Int { installerVersion.major }
+
     /// Release candidates too (the hidden includePrereleases default, for testing them).
     var prereleases: Bool { UserDefaults.standard.bool(forKey: "includePrereleases") }
 
-    var installable: [Release] { Releases.installable(releases, prereleases: prereleases) }
+    /// The releases this installer can build, newest first.
+    var installable: [Release] { Releases.compatible(releases, installerMajor: installerMajor, prereleases: prereleases) }
     var latest: Release? { installable.first }
+    /// A release of a later major version, which needs a new installer: game updates stop until the
+    /// player downloads it (Reinstall still works, to renew a free Apple ID's 7 days).
+    var newerInstaller: Release? {
+        Releases.needingNewerInstaller(releases, installerMajor: installerMajor, prereleases: prereleases)
+    }
+
+    /// What Add and Reinstall build: the latest release until something is installed (so a failed first
+    /// build never pins the tag it tried), then the release already built. A tag of another major
+    /// version (built by an older installer) doesn't count: this installer can't build it.
+    var targetTag: String? {
+        let built = state.tag.flatMap { SemVer($0)?.major == installerMajor ? $0 : nil }
+        return state.installs.isEmpty ? latest?.tag ?? built : built ?? latest?.tag
+    }
 
     /// A newer release than the one installed.
     var updateAvailable: Bool {
@@ -85,7 +105,7 @@ final class AppModel: ObservableObject {
     var setupReady: Bool { !doctor.isEmpty && !doctor.contains { $0.status == .missing } }
     var setupIssues: Int { doctor.filter { $0.status == .missing }.count }
     var pending: [Install] { state.installs.filter(\.pending) }
-    var canRun: Bool { !activity.running && setupReady && !state.apk.isEmpty && (state.tag ?? latest?.tag) != nil }
+    var canRun: Bool { blocker == nil }
 
     /// Paired Apple TVs the game isn't installed on yet.
     var newDevices: [Device] { devices.filter { device in !state.installs.contains { $0.deviceId == device.id } } }
@@ -95,7 +115,8 @@ final class AppModel: ObservableObject {
         if activity.running { return "Something is already running." }
         if !setupReady { return "Finish Setup first." }
         if state.apk.isEmpty { return "Choose your APK first." }
-        if state.tag == nil && latest == nil { return releaseError ?? "No release found on GitHub yet." }
+        if targetTag == nil { return releaseError ?? "No release found on GitHub yet." }
+        if state.installs.isEmpty && newerInstaller != nil { return "Download the new installer first." }
         return nil
     }
 
@@ -103,7 +124,12 @@ final class AppModel: ObservableObject {
 
     func start() {
         Task {
+            measureStorage()
             await refresh()
+            if newerInstaller != nil && !alertedNewInstaller {
+                alertedNewInstaller = true
+                showNewInstallerAlert = true
+            }
             if !setupReady {
                 screen = .setup
             } else if updateAvailable {
@@ -175,7 +201,7 @@ final class AppModel: ObservableObject {
 
     /// Installs the game on an Apple TV, at the release already built (or the latest).
     func add(_ device: Device) {
-        guard let tag = state.tag ?? latest?.tag else {
+        guard !(state.installs.isEmpty && newerInstaller != nil), let tag = targetTag else {
             return
         }
         let install = Install(deviceId: device.id, deviceName: device.name)
@@ -187,7 +213,7 @@ final class AppModel: ObservableObject {
 
     /// Builds and installs again: also how a free Apple ID's 7 days are renewed.
     func reinstall(_ install: Install) {
-        guard let tag = state.tag ?? latest?.tag else {
+        guard let tag = targetTag else {
             return
         }
         run("Reinstalling on \(install.deviceName)") {
@@ -198,7 +224,7 @@ final class AppModel: ObservableObject {
 
     /// The latest release, everywhere the game is installed.
     func updateAll() {
-        guard let latest else {
+        guard newerInstaller == nil, let latest else {
             return
         }
         install(latest, title: "Updating to \(latest.tag)")
@@ -206,6 +232,9 @@ final class AppModel: ObservableObject {
 
     /// `release` on every install: an update, or going back to an earlier version.
     func install(_ release: Release, title: String? = nil) {
+        guard newerInstaller == nil else {
+            return
+        }
         let targets = state.installs
         run(title ?? "Installing \(release.tag)") {
             try await self.bringSource(to: release.tag)
@@ -233,6 +262,49 @@ final class AppModel: ObservableObject {
     func showWorldBackups() {
         try? FileManager.default.createDirectory(at: workspace.worldBackups, withIntermediateDirectories: true)
         NSWorkspace.shared.open(workspace.worldBackups)
+    }
+
+    /// The release page of the newer installer.
+    func downloadNewInstaller() {
+        if let page = newerInstaller?.page.flatMap(URL.init(string:)) {
+            NSWorkspace.shared.open(page)
+        }
+    }
+
+    // MARK: Storage
+
+    /// Measures the workspace folder in the background.
+    func measureStorage() {
+        let workspace = workspace
+        Task.detached(priority: .utility) {
+            let size = workspace.size()
+            await MainActor.run { self.storageSize = size }
+        }
+    }
+
+    func showStorage() {
+        try? FileManager.default.createDirectory(at: workspace.root, withIntermediateDirectories: true)
+        NSWorkspace.shared.activateFileViewerSelecting([workspace.root])
+    }
+
+    /// Deletes what the next build makes again (the Xcode build).
+    func freeUpSpace() {
+        guard !activity.running else {
+            return
+        }
+        try? FileManager.default.removeItem(at: workspace.rebuildable)
+        measureStorage()
+    }
+
+    /// Deletes the whole folder and forgets everything. The game stays on the Apple TVs.
+    func removeEverything() {
+        guard !activity.running else {
+            return
+        }
+        try? FileManager.default.removeItem(at: workspace.root)
+        state = InstallerState()
+        reported = [:]
+        measureStorage()
     }
 
     func openXcode() {
@@ -341,6 +413,7 @@ final class AppModel: ObservableObject {
             if activity.problem != nil || activity.finished != nil {
                 NSApp.requestUserAttention(.informationalRequest)
             }
+            measureStorage()
         }
     }
 
@@ -421,10 +494,14 @@ final class AppModel: ObservableObject {
         return result
     }
 
-    /// Brings the source to `tag`: fetches it, reads its port.json (is this installer new enough, and
-    /// which submodules it needs), then checks it and those submodules out. On a failure it goes back
-    /// to the tag it was at.
+    /// Brings the source to `tag`: fetches it, reads its port.json (which submodules it needs), then
+    /// checks it and those submodules out. On a failure it goes back to the tag it was at. Only tags of
+    /// this installer's major version.
     private func bringSource(to tag: String) async throws {
+        guard let version = SemVer(tag), version.major == installerMajor else {
+            throw Problem(message: "\(tag) needs a different TVCraft Installer (this one builds \(installerMajor).x releases).",
+                          fix: "Download the installer from the \(tag) release on GitHub.")
+        }
         let previous = state.tag
         for (label, arguments) in Source.fetchCommands(workspace) {
             step(label)
@@ -435,12 +512,6 @@ final class AppModel: ObservableObject {
             }
         }
         let manifest = await Source.manifest(for: tag, in: workspace)
-        if let minimum = manifest?.minAppVersion, minimum > installerVersion {
-            needsInstaller = minimum
-            throw Problem(message: "\(tag) needs TVCraft Installer \(minimum) or later (this is \(installerVersion)).",
-                          fix: "Choose TVCraft Installer → Check for Updates…, then try again.")
-        }
-        needsInstaller = nil
         guard previous != tag || !FileManager.default.fileExists(atPath: workspace.engine.path) else {
             return
         }

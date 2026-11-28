@@ -43,6 +43,42 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 760, minHeight: 520)
+        .alert("A new TVCraft Installer is available", isPresented: $model.showNewInstallerAlert) {
+            Button("Download") { model.downloadNewInstaller() }
+            Button("Later", role: .cancel) {}
+        } message: {
+            Text(newInstallerMessage)
+        }
+    }
+
+    private var newInstallerMessage: String {
+        let tag = model.newerInstaller?.tag ?? "A new release"
+        return "\(tag) needs a new installer. Download it from its release page to keep updating the game. Until then, Reinstall still works."
+    }
+}
+
+/// Shown on the Game and Updates screens while a release of a later major version is out.
+struct NewInstallerBanner: View {
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        if let release = model.newerInstaller {
+            GroupBox {
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: "arrow.down.app.fill").font(.title2).foregroundStyle(Color.brand)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("A new TVCraft Installer is available").bold()
+                        Text("\(release.tag) needs it. Game updates stop until you download it; Reinstall still works, so a free Apple ID's 7 days can be renewed.")
+                            .font(.callout).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer()
+                    Button("Download", action: model.downloadNewInstaller)
+                        .buttonStyle(.borderedProminent)
+                }
+                .padding(6)
+            }
+        }
     }
 }
 
@@ -87,6 +123,50 @@ struct SetupScreen: View {
                 }
             }
             APKBox()
+            StorageBox()
+        }
+    }
+}
+
+/// Setup → Storage: the one folder the installer writes to, and ways to shrink it.
+struct StorageBox: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var confirmingRemove = false
+
+    var body: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 12) {
+                    Image(systemName: "internaldrive").font(.title).foregroundStyle(Color.brand)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(model.storageSize.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) } ?? "Measuring…")
+                            .font(.headline)
+                        Text(model.workspace.root.path)
+                            .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                            .textSelection(.enabled)
+                    }
+                    Spacer()
+                    Button("Show in Finder", action: model.showStorage)
+                }
+                Text("Everything the installer downloads and builds is in this folder, never in the app, so replacing the installer keeps it.")
+                    .font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Button("Free Up Space", action: model.freeUpSpace)
+                        .help("Deletes the Xcode build. The next install builds it again.")
+                    Spacer()
+                    Button("Remove Everything…", role: .destructive) { confirmingRemove = true }
+                }
+                .disabled(model.activity.running)
+            }
+            .padding(6)
+        } label: {
+            Text("Storage").font(.headline)
+        }
+        .confirmationDialog("Remove everything the installer keeps on this Mac?", isPresented: $confirmingRemove) {
+            Button("Remove Everything", role: .destructive, action: model.removeEverything)
+        } message: {
+            Text("This deletes the source, the build, the logs, your world backups and the installer's settings. The game stays on your Apple TVs.")
         }
     }
 }
@@ -112,7 +192,7 @@ struct APKBox: View {
         GroupBox {
             HStack(spacing: 12) {
                 Image(systemName: "shippingbox").font(.title)
-                    .foregroundStyle(model.state.apk.isEmpty ? Color.secondary : Color.accentColor)
+                    .foregroundStyle(model.state.apk.isEmpty ? Color.secondary : Color.brand)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(model.state.apk.isEmpty ? "No APK chosen" : URL(fileURLWithPath: model.state.apk).lastPathComponent)
                         .font(.headline)
@@ -125,7 +205,7 @@ struct APKBox: View {
                 Button("Choose…", action: choose).disabled(model.activity.running)
             }
             .padding(6)
-            .background(RoundedRectangle(cornerRadius: 6).stroke(dropping ? Color.accentColor : .clear, lineWidth: 2))
+            .background(RoundedRectangle(cornerRadius: 6).stroke(dropping ? Color.brand : .clear, lineWidth: 2))
             .onDrop(of: [.fileURL], isTargeted: $dropping) { providers in
                 guard !model.activity.running, let provider = providers.first else {
                     return false
@@ -162,8 +242,8 @@ struct GameScreen: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Header(title: "TVCraft",
-                   subtitle: model.state.tag.map { "Version \($0) is built." } ?? "Not built yet. The first build takes about 10 minutes.")
+            Header(title: "TVCraft", subtitle: gameStatus)
+            NewInstallerBanner()
             APKBox()
             GroupBox {
                 VStack(alignment: .leading, spacing: 10) {
@@ -211,6 +291,13 @@ struct GameScreen: View {
                 Button("Show world backups in Finder", action: model.showWorldBackups)
             }
         }
+    }
+
+    private var gameStatus: String {
+        guard !model.state.installs.isEmpty else {
+            return "Not installed yet. The first build takes about 10 minutes."
+        }
+        return model.state.tag.map { "Version \($0) is installed." } ?? "Installed."
     }
 }
 
@@ -302,24 +389,11 @@ struct InstallRow: View {
 
 struct UpdatesScreen: View {
     @EnvironmentObject private var model: AppModel
-    @EnvironmentObject private var updater: InstallerUpdater
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Header(title: "Updates", subtitle: "New versions come from the project's releases on GitHub.")
-            GroupBox {
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("TVCraft Installer \(model.installerVersion.description)").bold()
-                        if let needed = model.needsInstaller {
-                            Text("The latest game needs installer \(needed.description) or later.").foregroundStyle(.orange)
-                        }
-                    }
-                    Spacer()
-                    Button("Check for Updates…", action: updater.check).disabled(!updater.available)
-                }
-                .padding(8)
-            }
+            NewInstallerBanner()
             GroupBox {
                 VStack(alignment: .leading, spacing: 12) {
                     if let error = model.releaseError {
@@ -332,9 +406,13 @@ struct UpdatesScreen: View {
                                 Text(status(latest)).foregroundStyle(.secondary)
                             }
                             Spacer()
-                            Button(model.state.installs.isEmpty ? "Nothing Installed Yet" : "Update All", action: model.updateAll)
-                                .buttonStyle(.borderedProminent)
-                                .disabled(!model.updateAvailable || !model.canRun)
+                            if model.state.installs.isEmpty {
+                                Button("Go to Game") { model.screen = .game }
+                            } else {
+                                Button("Update All", action: model.updateAll)
+                                    .buttonStyle(.borderedProminent)
+                                    .disabled(!model.updateAvailable || !model.canRun || model.newerInstaller != nil)
+                            }
                         }
                         if let notes = latest.notes, !notes.isEmpty {
                             Divider()
@@ -357,7 +435,8 @@ struct UpdatesScreen: View {
                             }
                         }
                         .fixedSize()
-                        .disabled(model.installable.isEmpty || model.state.installs.isEmpty || !model.canRun)
+                        .disabled(model.installable.isEmpty || model.state.installs.isEmpty || !model.canRun
+                                  || model.newerInstaller != nil)
                     }
                 }
                 .padding(8)
@@ -368,8 +447,8 @@ struct UpdatesScreen: View {
     }
 
     private func status(_ latest: Release) -> String {
-        guard let tag = model.state.tag else {
-            return "The newest release. Install the game from the Game screen."
+        guard !model.state.installs.isEmpty, let tag = model.state.tag else {
+            return "Install it on an Apple TV from the Game screen."
         }
         return model.updateAvailable ? "You have \(tag). Update All rebuilds it and reinstalls it on each of your Apple TVs, backing up your worlds first."
                                      : "You have the newest version."

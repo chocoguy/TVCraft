@@ -102,11 +102,15 @@ class Engine(unittest.TestCase):
     """The parts TVCraft Installer depends on: events, versions, bundle IDs, the work dir and the prepare stamp."""
 
     def setUp(self):
-        self.saved = (tvcraft.STAGING, tvcraft.BUILD, tvcraft.BACKUPS, tvcraft.JSON, os.environ.get('PATH'))
+        self.saved = (tvcraft.STAGING, tvcraft.BUILD, tvcraft.BACKUPS, tvcraft.JSON, os.environ.get('PATH'), os.environ.get('SDKROOT'))
 
     def tearDown(self):
-        tvcraft.STAGING, tvcraft.BUILD, tvcraft.BACKUPS, tvcraft.JSON, path = self.saved
+        tvcraft.STAGING, tvcraft.BUILD, tvcraft.BACKUPS, tvcraft.JSON, path, sdkroot = self.saved
         os.environ['PATH'] = path
+        if sdkroot is None:
+            os.environ.pop('SDKROOT', None)
+        else:
+            os.environ['SDKROOT'] = sdkroot
 
     def events(self, func, *args, **kwargs) -> list:
         tvcraft.JSON = True
@@ -154,6 +158,7 @@ class Engine(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             work = Path(folder) / 'Application Support' / 'work'
             os.environ['PATH'] = '/usr/bin:/bin'
+            os.environ['SDKROOT'] = '/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk'
             tvcraft.configure(str(work), '/opt/tools/xcodegen/bin/xcodegen')
             self.assertEqual(tvcraft.STAGING, work.resolve() / 'staging')
             self.assertEqual(tvcraft.BUILD, work.resolve() / 'build')
@@ -161,16 +166,16 @@ class Engine(unittest.TestCase):
             path = os.environ['PATH'].split(':')
             self.assertEqual(path[:3], ['/opt/tools/xcodegen/bin', '/opt/homebrew/bin', '/usr/local/bin'])
             self.assertEqual(path[-2:], ['/usr/bin', '/bin'])
+            self.assertNotIn('SDKROOT', os.environ)   # /usr/bin/python3's macOS SDK must not reach the tvOS build
 
     def test_prepare_stamp(self):
         with tempfile.TemporaryDirectory() as folder:
             apk = Path(folder) / 'game.apk'
             apk.write_bytes(b'one')
-            first = tvcraft.prepare_stamp(apk, None)
-            self.assertEqual(first, tvcraft.prepare_stamp(apk, None))
-            self.assertNotEqual(first, tvcraft.prepare_stamp(apk, 'icon.png'))
+            first = tvcraft.prepare_stamp(apk)
+            self.assertEqual(first, tvcraft.prepare_stamp(apk))
             apk.write_bytes(b'longer')
-            self.assertNotEqual(first, tvcraft.prepare_stamp(apk, None))
+            self.assertNotEqual(first, tvcraft.prepare_stamp(apk))
 
     def test_wrong_apk(self):
         with tempfile.TemporaryDirectory() as folder:

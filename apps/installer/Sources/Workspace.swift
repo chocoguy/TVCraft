@@ -1,6 +1,8 @@
 import Foundation
 
-/// Where the installer keeps everything: ~/Library/Application Support/TVCraft Installer.
+/// Where the installer keeps everything: ~/Library/Application Support/TVCraft Installer. One folder,
+/// never inside the .app (writing there breaks its signature, a copy run from Downloads is read-only,
+/// and a new download of the installer would lose it all), so replacing the installer changes nothing.
 struct Workspace: Sendable {
     let root: URL
 
@@ -22,6 +24,26 @@ struct Workspace: Sendable {
     var releasesCache: URL { root.appendingPathComponent("cache/releases.json") }
     /// The build engine, from the checked-out release.
     var engine: URL { source.appendingPathComponent("scripts/tvcraft.py") }
+    /// What Setup → Storage → Free Up Space deletes: the Xcode build (the engine's -derivedDataPath),
+    /// which the next build makes again.
+    var rebuildable: URL { work.appendingPathComponent("build", isDirectory: true) }
+
+    /// What the folder takes on disk (allocated bytes, so sparse and compressed files count as they
+    /// are). 0 if it doesn't exist.
+    func size() -> Int64 {
+        let keys: [URLResourceKey] = [.isRegularFileKey, .totalFileAllocatedSizeKey, .fileAllocatedSizeKey]
+        guard let files = FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys) else {
+            return 0
+        }
+        var total: Int64 = 0
+        for case let file as URL in files {
+            guard let values = try? file.resourceValues(forKeys: Set(keys)), values.isRegularFile == true else {
+                continue
+            }
+            total += Int64(values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? 0)
+        }
+        return total
+    }
 
     func load() -> InstallerState {
         guard let data = try? Data(contentsOf: stateFile),

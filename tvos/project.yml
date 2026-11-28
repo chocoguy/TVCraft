@@ -69,8 +69,7 @@ targets:
       # ${TVCRAFT_STAGING} is tvos/staging, or <work dir>/staging with tvcraft.py --work-dir (set by tvcraft.py when it generates the project)
       - path: ${TVCRAFT_STAGING}/pcm_data.c          # the sounds, generated from your APK by tvcraft.py prepare
         optional: true
-      - path: ${TVCRAFT_STAGING}/Assets.xcassets     # the layered icon and Top Shelf images, made by tvcraft.py prepare (tools/tv_icon.swift)
-        optional: true
+      - path: Assets.xcassets                        # the layered app icon, the Top Shelf images and the accent color
       - path: ${TVCRAFT_STAGING}/assets              # copied as <app>/assets: the game reads assets/... relative to the bundle (main.mm changes into it)
         type: folder
         buildPhase: resources
@@ -112,6 +111,7 @@ targets:
       CODE_SIGN_STYLE: Automatic
       TARGETED_DEVICE_FAMILY: "3"
       ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon   # AppIcon.brandassets: tvOS's layered icon and its Top Shelf images
+      ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor   # #C6E9AF light, #2D5DA4 dark
 schemes:
   TVCraft:
     build:

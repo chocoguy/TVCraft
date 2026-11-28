@@ -62,7 +62,6 @@
   "stages": [
     { "id": "apk", "label": "Reading your APK", "command": "prepare" },
     { "id": "sounds", "label": "Extracting the sounds", "command": "prepare" },
-    { "id": "icon", "label": "Making the icon and Top Shelf images", "command": "prepare" },
     { "id": "configure", "label": "Setting up the Xcode project", "command": "build" },
     { "id": "compile", "label": "Compiling the game", "command": "build" },
     { "id": "backup", "label": "Backing up your worlds", "command": "install" },

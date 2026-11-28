@@ -18,7 +18,7 @@ python3 scripts/tvcraft.py build --sim
 python3 scripts/tvcraft.py sim
 ```
 
-`prepare` copies the game's assets and sounds out of your APK into `tvos/staging`, which git ignores, and makes the app icon and Top Shelf images from the icon in the APK (`--icon <image>` uses yours; `tools/tv_icon.swift`, from TVPort). It checks that the APK's `libminecraftpe.so` is the build the decompilation matches. `prepare` remembers the APK it read (by path, size and date), so running it again is instant; `extract` always reads it again. `sim` installs and launches the app on the booted Apple TV simulator. `check` lists what's missing on this Mac.
+`prepare` copies the game's assets and sounds out of your APK into `tvos/staging`, which git ignores. The app icon, Top Shelf images and accent color are in `tvos/Assets.xcassets`. `prepare` checks that the APK's `libminecraftpe.so` is the build the decompilation matches. `prepare` remembers the APK it read (by path, size and date), so running it again is instant; `extract` always reads it again. `sim` installs and launches the app on the booted Apple TV simulator. `check` lists what's missing on this Mac.
 
 On an Apple TV, paired with Xcode (**Window > Devices and Simulators**) and with an Apple ID signed in to Xcode:
 

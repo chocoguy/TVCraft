@@ -1,23 +1,28 @@
 #!/bin/sh
-# Publishes a release: tags the version, builds TVCraft Installer, signs it with your Developer ID,
-# notarizes and staples it, makes Sparkle's appcast, and creates the GitHub release with both. Players'
-# installers pick the release up from GitHub: the game from its tag, the installer from the appcast.
+# Publishes a release: tags the version and creates the GitHub release with the installer attached.
+# Players' installers pick the game up from the tag.
+#
+# The major version is the installer:
+#   N.0.0   a new installer: builds TVCraft Installer, signs it with your Developer ID, notarizes and
+#           staples it, and attaches it as TVCraftInstaller.zip. It builds only N.x.y releases.
+#   N.x.y   a game update: builds no installer. It downloads vN.0.0's TVCraftInstaller.zip and attaches
+#           it again unchanged, so the latest release always has the installer.
 # Adapted from Frontline Rewritten's tools/release.sh.
 #
-#   tools/release.sh <version> [--prerelease] [--min-app <version>] [--notes <file.md>] [--dry-run]
+#   tools/release.sh <version> [--prerelease] [--notes <file.md>] [--dry-run]
 #
 #   <version>        1.0.0, or 1.0.0-rc1 for a release candidate (with --prerelease)
 #   --prerelease     a GitHub pre-release: only installers with includePrereleases see it
-#   --min-app V      players need installer V or later to build this release (port.json minAppVersion)
 #   --notes FILE     the release notes (Markdown); asked for otherwise
-#   --dry-run        checks everything and builds ad hoc, but signs, notarizes, commits and pushes nothing
+#   --dry-run        checks everything (and builds an N.0.0 installer ad hoc), but signs, notarizes,
+#                    commits and pushes nothing
 #
 # One-time setup is in docs/release.md. NOTARY_PROFILE names the notarytool keychain profile
 # (default frontline-notary: the same Apple ID and team sign both ports).
 #
 # The installer's CMake project (apps/installer) takes TVCRAFT_VERSION, TVCRAFT_COMMIT,
-# TVCRAFT_INSTALLER_SIGN_IDENTITY, TVCRAFT_DEVELOPMENT_TEAM and TVCRAFT_SPARKLE_PUBLIC_KEY, builds the
-# target TVCraftInstaller as "TVCraft Installer.app", and caches Sparkle's folder as TVCRAFT_SPARKLE_DIR.
+# TVCRAFT_INSTALLER_SIGN_IDENTITY and TVCRAFT_DEVELOPMENT_TEAM, and builds the target
+# TVCraftInstaller as "TVCraft Installer.app".
 set -eu
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -29,13 +34,11 @@ DIST="$ROOT/build/dist"
 
 version=""
 prerelease=0
-min_app=""
 notes=""
 dry=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --prerelease) prerelease=1 ;;
-        --min-app) min_app="$2"; shift ;;
         --notes) notes="$2"; shift ;;
         --dry-run) dry=1 ;;
         -*) echo "unknown option $1" >&2; exit 2 ;;
@@ -57,8 +60,16 @@ act() {
 
 echo "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$' || fail "give a version like 1.0.0 or 1.0.0-rc1"
 case "$version" in *-*) [ "$prerelease" = 1 ] || fail "$version looks like a release candidate: add --prerelease" ;; esac
-[ -z "$min_app" ] || echo "$min_app" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || fail "--min-app takes a version like 1.0.0"
 tag="v$version"
+numeric="${version%%-*}"
+major="${numeric%%.*}"
+installer_tag="v$major.0.0"
+ZIP_NAME="TVCraftInstaller.zip"
+# N.0.0 (or N.0.0-rc1) makes a new installer; anything else reuses vN.0.0's.
+case "$numeric" in
+    "$major.0.0") new_installer=1 ;;
+    *) new_installer=0 ;;
+esac
 
 # A problem that stops a release; a dry run only reports it.
 need() {
@@ -89,17 +100,29 @@ for path in $(git config -f .gitmodules --get-regexp '\.path$' | awk '{print $2}
 done
 echo "   engine tests"
 /usr/bin/python3 -I scripts/tests/test_tvcraft.py >/dev/null 2>&1 || fail "scripts/tests/test_tvcraft.py fails: run it to see why"
-key_file="$ROOT/apps/installer/sparkle-public-key.txt"
-[ -s "$key_file" ] || need "no Sparkle public key in apps/installer/sparkle-public-key.txt (docs/release.md)"
-identity="$(security find-identity -v -p codesigning | sed -n 's/.*"\(Developer ID Application: .*\)".*/\1/p' | head -1)"
-if [ -z "$identity" ]; then
-    [ "$dry" = 1 ] || fail "no Developer ID Application certificate in the keychain (docs/release.md)"
-    echo "   no Developer ID certificate (fine for a dry run)"
+identity=""
+team=""
+if [ "$new_installer" = 1 ]; then
+    echo "   new installer: $tag builds TVCraft Installer (it builds $major.x.y releases)"
+    identity="$(security find-identity -v -p codesigning | sed -n 's/.*"\(Developer ID Application: .*\)".*/\1/p' | head -1)"
+    if [ -z "$identity" ]; then
+        [ "$dry" = 1 ] || fail "no Developer ID Application certificate in the keychain (docs/release.md)"
+        echo "   no Developer ID certificate (fine for a dry run)"
+    fi
+    team="$(printf '%s' "$identity" | sed -n 's/.*(\([A-Z0-9]*\))$/\1/p')"
+    if [ "$dry" = 0 ]; then
+        xcrun notarytool history --keychain-profile "$PROFILE" >/dev/null 2>&1 || fail "no notarytool profile $PROFILE (docs/release.md)"
+    fi
+else
+    echo "   game update: attaches $installer_tag's installer"
 fi
-team="$(printf '%s' "$identity" | sed -n 's/.*(\([A-Z0-9]*\))$/\1/p')"
-if [ "$dry" = 0 ]; then
-    xcrun notarytool history --keychain-profile "$PROFILE" >/dev/null 2>&1 || fail "no notarytool profile $PROFILE (docs/release.md)"
-    command -v gh >/dev/null && gh auth status >/dev/null 2>&1 || fail "install gh and run gh auth login (docs/release.md)"
+if command -v gh >/dev/null && gh auth status >/dev/null 2>&1; then
+    if [ "$new_installer" = 0 ]; then
+        gh release view "$installer_tag" --repo "$REPO" --json assets --jq '.assets[].name' 2>/dev/null | grep -qx "$ZIP_NAME" \
+            || need "$installer_tag has no $ZIP_NAME on GitHub: a $major.x.y release needs the $major.0.0 installer"
+    fi
+else
+    need "install gh and run gh auth login (docs/release.md)"
 fi
 if [ -z "$notes" ]; then
     if [ "$dry" = 1 ]; then
@@ -112,12 +135,18 @@ if [ -z "$notes" ]; then
     fi
 fi
 [ -s "$notes" ] || fail "the release notes are empty"
-echo "   $tag, signed by ${identity:-nobody (dry run)}"
+if [ "$new_installer" = 1 ]; then
+    echo "   $tag, signed by ${identity:-nobody (dry run)}"
+else
+    echo "   $tag"
+fi
 
 say "Bumping port.json"
 mkdir -p "$(dirname "$BUILD")"
 [ "$dry" = 0 ] || cp port.json "$BUILD.port.json"
-/usr/bin/python3 -I - "$version" "$min_app" <<'EOF'
+# minAppVersion is N.0.0 only for the Sparkle-era installers (1.x), which read it and so stop before
+# building a newer major; installers from 2.0.0 on go by the major version instead.
+/usr/bin/python3 -I - "$version" "$major.0.0" <<'EOF'
 import json, sys
 from pathlib import Path
 path = Path('port.json')
@@ -126,8 +155,7 @@ data = json.loads(text)
 version, min_app = sys.argv[1], sys.argv[2]
 # Keep the file's layout: replace the two values in place.
 text = text.replace(f'"version": {json.dumps(data["version"])}', f'"version": {json.dumps(version)}', 1)
-if min_app:
-    text = text.replace(f'"minAppVersion": {json.dumps(data["minAppVersion"])}', f'"minAppVersion": {json.dumps(min_app)}', 1)
+text = text.replace(f'"minAppVersion": {json.dumps(data["minAppVersion"])}', f'"minAppVersion": {json.dumps(min_app)}', 1)
 json.loads(text)
 path.write_text(text)
 EOF
@@ -146,52 +174,48 @@ if [ "$dry" = 1 ]; then
 fi
 commit="$(git rev-parse --short HEAD)"
 
-say "Building TVCraft Installer $version"
-sign_identity="${identity:--}"
-[ "$dry" = 0 ] || sign_identity="-"
-cmake -S "$ROOT/apps/installer" -B "$BUILD" -G Xcode \
-    -DTVCRAFT_VERSION="$version" -DTVCRAFT_COMMIT="$commit" \
-    -DTVCRAFT_INSTALLER_SIGN_IDENTITY="$sign_identity" -DTVCRAFT_DEVELOPMENT_TEAM="$team" \
-    -DTVCRAFT_SPARKLE_PUBLIC_KEY="$(tr -d ' \n' 2>/dev/null <"$key_file")" >/dev/null
-cmake --build "$BUILD" --config Release --target TVCraftInstaller -- -quiet
-app="$(find "$BUILD" -path '*/Release/TVCraft Installer.app' -maxdepth 3 -type d | head -1)"
-[ -n "$app" ] && [ -d "$app" ] || fail "the build made no app"
-sparkle_bin="$(sed -n 's/^TVCRAFT_SPARKLE_DIR:INTERNAL=//p' "$BUILD/CMakeCache.txt")/bin"
-
-say "Signing"
-# Sparkle's parts inside-out, then the app (Sparkle's documentation, "Code signing").
-fw="$app/Contents/Frameworks/Sparkle.framework/Versions/B"
-sign() { act codesign --force --options runtime --timestamp --sign "$identity" "$@"; }
-sign "$fw/XPCServices/Installer.xpc"
-sign --preserve-metadata=entitlements "$fw/XPCServices/Downloader.xpc"
-sign "$fw/Autoupdate"
-sign "$fw/Updater.app"
-sign "$app/Contents/Frameworks/Sparkle.framework"
-sign "$app"
-act codesign --verify --deep --strict --verbose=2 "$app"
-
-say "Notarizing"
 rm -rf "$DIST/$version"
 mkdir -p "$DIST/$version"
-zip="$DIST/$version/TVCraftInstaller-$version.zip"
-ditto -c -k --keepParent "$app" "$zip"
-act xcrun notarytool submit "$zip" --keychain-profile "$PROFILE" --wait
-act xcrun stapler staple "$app"
-act spctl --assess --type execute --verbose=2 "$app"
-rm -f "$zip"
-ditto -c -k --keepParent "$app" "$zip"
+zip="$DIST/$version/$ZIP_NAME"
+if [ "$new_installer" = 1 ]; then
+    say "Building TVCraft Installer $version"
+    sign_identity="${identity:--}"
+    [ "$dry" = 0 ] || sign_identity="-"
+    # A clean build: Xcode leaves files an earlier build made in the bundle (Sparkle.framework, up to 1.x).
+    rm -rf "$BUILD"
+    cmake -S "$ROOT/apps/installer" -B "$BUILD" -G Xcode \
+        -DTVCRAFT_VERSION="$version" -DTVCRAFT_COMMIT="$commit" \
+        -DTVCRAFT_INSTALLER_SIGN_IDENTITY="$sign_identity" -DTVCRAFT_DEVELOPMENT_TEAM="$team" >/dev/null
+    cmake --build "$BUILD" --config Release --target TVCraftInstaller -- -quiet
+    app="$(find "$BUILD" -path '*/Release/TVCraft Installer.app' -maxdepth 3 -type d | head -1)"
+    [ -n "$app" ] && [ -d "$app" ] || fail "the build made no app"
 
-say "Making the appcast"
-cp "$notes" "$DIST/$version/TVCraftInstaller-$version.md"
-act "$sparkle_bin/generate_appcast" --embed-release-notes \
-    --download-url-prefix "https://github.com/$REPO/releases/download/$tag/" \
-    --link "https://github.com/$REPO" "$DIST/$version"
+    say "Signing"
+    act codesign --force --options runtime --timestamp --sign "$identity" "$app"
+    act codesign --verify --deep --strict --verbose=2 "$app"
+
+    say "Notarizing"
+    ditto -c -k --keepParent "$app" "$zip"
+    act xcrun notarytool submit "$zip" --keychain-profile "$PROFILE" --wait
+    act xcrun stapler staple "$app"
+    act spctl --assess --type execute --verbose=2 "$app"
+    rm -f "$zip"
+    ditto -c -k --keepParent "$app" "$zip"
+else
+    say "Attaching $installer_tag's installer"
+    act gh release download "$installer_tag" --repo "$REPO" --pattern "$ZIP_NAME" --dir "$DIST/$version"
+    [ "$dry" = 1 ] || [ -s "$zip" ] || fail "couldn't download $ZIP_NAME from $installer_tag"
+fi
 
 say "Publishing"
 if [ "$dry" = 1 ]; then
     echo "   (dry run) git push origin main $tag"
-    echo "   (dry run) gh release create $tag $zip $DIST/$version/appcast.xml"
-    echo "Dry run done: $zip (ad hoc signed)."
+    echo "   (dry run) gh release create $tag $zip"
+    if [ "$new_installer" = 1 ]; then
+        echo "Dry run done: $zip (ad hoc signed)."
+    else
+        echo "Dry run done: game update: attaches $installer_tag's installer."
+    fi
     exit 0
 fi
 printf 'Push %s and publish the release on GitHub? [y/N] ' "$tag"
@@ -204,6 +228,6 @@ git push origin main "$tag"
 pre=""
 [ "$prerelease" = 0 ] || pre="--prerelease"
 # shellcheck disable=SC2086
-gh release create "$tag" "$zip" "$DIST/$version/appcast.xml" --repo "$REPO" --verify-tag \
+gh release create "$tag" "$zip" --repo "$REPO" --verify-tag \
     --title "TVCraft $version" --notes-file "$notes" $pre
 echo "Published $tag: https://github.com/$REPO/releases/tag/$tag"

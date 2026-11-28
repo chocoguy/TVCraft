@@ -54,7 +54,6 @@ BUILD = TVOS / 'build'
 BACKUPS = TVOS / 'save-backups'
 
 LIB_IN_APK = 'lib/armeabi-v7a/libminecraftpe.so'
-DEFAULT_ICON = 'assets/app/ios/icons/mcpe_ios_icon.png'   # in the APK: the iOS app's 512x512 icon
 LIB_SHA1 = 'c30bd6e3b72be7b97a222d79d1405b55f6d3bf71'   # the build tools/get_sound_data.py's offsets were taken from
 BASE_BUNDLE_ID = 'io.github.chocoguy.tvcraft'            # a build gets BASE_BUNDLE_ID.<team>: bundle IDs are global, so each team needs its own
 SCHEME = 'TVCraft'
@@ -63,7 +62,7 @@ WORLDS = 'games/com.mojang/minecraftWorlds'
 SAVE_FILE = re.compile(r'^games/com\.mojang/(minecraftWorlds/[^/]+/(level\.dat|chunks\.dat|entities\.dat|player\.dat)|minecraftpe/options\.txt)$')
 TV_TIMEOUT_S = 30
 LAUNCH_SETTLE_S = 3
-PREPARE_SCHEMA = 1                     # bump when prepare's output changes, so cached staging is redone
+PREPARE_SCHEMA = 2                     # bump when prepare's output changes, so cached staging is redone (2: no icon; tvos/Assets.xcassets has it)
 MIN_XCODE = (27, 0)
 MIN_PYTHON = (3, 9)
 EXTRA_PATH = ['/opt/homebrew/bin', '/usr/local/bin']   # an app opened from Finder gives its tools only /usr/bin:/bin:/usr/sbin:/sbin
@@ -150,6 +149,9 @@ def configure(work_dir: Optional[str], xcodegen: Optional[str] = None) -> None:
     extra = ([str(Path(xcodegen).expanduser().resolve().parent)] if xcodegen else []) + EXTRA_PATH
     path = os.environ.get('PATH', '/usr/bin:/bin:/usr/sbin:/sbin').split(':')
     os.environ['PATH'] = ':'.join([p for p in extra if p not in path] + path)
+    # /usr/bin/python3 (how the installer runs this) is an xcrun shim that exports SDKROOT=<the macOS SDK>.
+    # Xcode reads build settings from the environment too, so never hand that to the tvOS build.
+    os.environ.pop('SDKROOT', None)
 
 
 def port_info() -> dict:
@@ -229,19 +231,19 @@ def read_game_library(apk: Path) -> bytes:
     return lib
 
 
-def prepare_stamp(apk: Path, icon: Optional[str]) -> dict:
-    """What prepare's output depends on: the APK (by path, size and modification time), the icon and this script's schema."""
+def prepare_stamp(apk: Path) -> dict:
+    """What prepare's output depends on: the APK (by path, size and modification time) and this script's schema."""
     info = apk.resolve().stat()
-    return {'schema': PREPARE_SCHEMA, 'apk': str(apk.resolve()), 'size': info.st_size, 'mtime_ns': info.st_mtime_ns, 'icon': icon or ''}
+    return {'schema': PREPARE_SCHEMA, 'apk': str(apk.resolve()), 'size': info.st_size, 'mtime_ns': info.st_mtime_ns}
 
 
 def staged() -> bool:
-    return (STAGING / 'pcm_data.c').is_file() and (STAGING / 'assets').is_dir() and (STAGING / 'Assets.xcassets').is_dir()
+    return (STAGING / 'pcm_data.c').is_file() and (STAGING / 'assets').is_dir()
 
 
 def cmd_prepare(args, force: bool = False) -> None:
     apk = find_apk(args.apk)
-    stamp = prepare_stamp(apk, args.icon)
+    stamp = prepare_stamp(apk)
     stamp_file = STAGING / 'prepared.json'
     try:
         cached = json.loads(stamp_file.read_text())
@@ -279,24 +281,12 @@ def cmd_prepare(args, force: bool = False) -> None:
         STAGING.mkdir(parents=True, exist_ok=True)
         shutil.move(str(Path(folder) / 'pcm_data.c'), STAGING / 'pcm_data.c')
     note(f'Sounds: {(STAGING / "pcm_data.c").stat().st_size / 2**20:.1f} MB of C in {STAGING / "pcm_data.c"}')
-    stage('icon', 'Making the icon and Top Shelf images')
-    make_icon(Path(args.icon).expanduser() if args.icon else STAGING / DEFAULT_ICON)
+    shutil.rmtree(STAGING / 'Assets.xcassets', ignore_errors=True)   # the icon prepare made before 2.0.0
     stamp_file.write_text(json.dumps(stamp, indent=1) + '\n')
 
 
 def cmd_extract(args) -> None:
     cmd_prepare(args, force=True)
-
-
-def make_icon(image: Path) -> None:
-    """tvOS's layered app icon and Top Shelf banners from one image, by TVPort's tv_icon.swift, into the staging Assets.xcassets."""
-    if not image.is_file():
-        raise Failure(f'No icon image at {image}', 'icon-missing')
-    catalog = STAGING / 'Assets.xcassets'
-    result = run(['xcrun', 'swift', TVOS / 'tools/tv_icon.swift', image, catalog])
-    if result.returncode:
-        raise Failure(f'tv_icon.swift: {result.stderr.strip()[-500:]}', 'icon-failed')
-    note(f'Icon and Top Shelf: from {image.name} in {catalog}')
 
 
 # ---------- signing teams ----------
@@ -849,7 +839,6 @@ def parser() -> argparse.ArgumentParser:
     common.add_argument('--team', help='the signing team ID (default: TVCRAFT_TEAM, else the one Xcode uses)')
     common.add_argument('--bundle-id', help=f'the app\'s bundle ID (default: {BASE_BUNDLE_ID}.<team>)')
     common.add_argument('--xcodegen', help='the XcodeGen binary (default: xcodegen on PATH)')
-    common.add_argument('--icon', help='an image for the app icon and Top Shelf (default: the icon in the APK)')
     env_kv = dict(action='append', type=lambda kv: tuple(kv.split('=', 1)), metavar='KEY=VALUE', help='launch environment, e.g. TVCRAFT_INPUT_LOG=1')
 
     top = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)

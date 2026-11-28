@@ -21,10 +21,13 @@ built from the [MCPE 0.8.1 decompilation](https://github.com/oldminecraftcommuni
 
 ## Install
 
-1. Download **TVCraft Installer** from the [latest release](https://github.com/chocoguy/TVCraft/releases/latest) and open it.
-2. **Setup** checks Xcode and fixes what's missing (it downloads XcodeGen itself).
-3. **Game**: choose your APK, then **Install On** your Apple TV. It builds the game and installs it; open it from the Apple TV's Home screen.
-4. **Updates**: when a new release is out, **Update All** rebuilds and reinstalls it. Your worlds are backed up to the Mac before every install.
+1. Download **TVCraft Installer** from the [latest release](https://github.com/chocoguy/TVCraft/releases/latest) Drag the .app package to the ***Applications Folder***
+2. Is the .app package in the **Applications folder???***
+3. **Setup** checks Xcode and fixes what's missing (it downloads XcodeGen itself).
+4. **Game**: choose your APK, then **Install On** your Apple TV. It builds the game and installs it; open it from the Apple TV's Home screen.
+5. **Updates**: when a new release is out, **Update All** rebuilds and reinstalls it. Your worlds are backed up to the Mac before every install. When a release needs a new installer, it says so and links to it; until you download it, game updates wait, but **Reinstall** still works (to renew a free Apple ID's 7 days).
+
+Everything the installer downloads and builds stays in one folder, `~/Library/Application Support/TVCraft Installer/`, never inside the app, so replacing or redownloading the installer keeps it. **Setup → Storage** shows its size, opens it in Finder, frees up space (the Xcode build, made again on the next install) or removes everything (the game stays on your Apple TV).
 
 ## Controls
 

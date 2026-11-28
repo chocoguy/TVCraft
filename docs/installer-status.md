@@ -9,7 +9,8 @@ TVCraft Installer is the Mac app players download. It builds TVCraft from their 
 | M0 | Repo hygiene: the `MCPE-1.1.5-decomp` submodule committed (7000c01); `.DS_Store` untracked; `tvos/save-backups/` and `build/` ignored | done; the last three not yet committed |
 | M1 | Build engine: `scripts/tvcraft.py` with `--json`, `--work-dir`, `check`, `prepare` (cached), `build --platform tvos`, `install` (backs up worlds first, never launches), `installed`, `clean` | done |
 | M1b | Version stamping: `port.json`; `MARKETING_VERSION`, `CURRENT_PROJECT_VERSION`, `TVCraftVersion`, `TVCraftCommit`, `TVCraftGameVersion` in the app | done |
-| M2 | The installer app, `apps/installer/` | not started |
+| M2 | The installer app, `apps/installer/` | done |
+| M5 | Major version = installer (no Sparkle), the target-tag fix, Setup → Storage, accent color, the tvOS icon from `tvos/Assets.xcassets`; first release: `v2.0.0` | done, untested on devices |
 | M3 | `tools/release.sh`, `docs/release.md`, README | done; `--dry-run` needs M2 |
 | M4 | Your tests (below), then `v1.0.0` | waiting on M2 |
 
@@ -69,7 +70,7 @@ python3 scripts/tvcraft.py installed --device <UDID>
 ### Updates
 1. Tag `v1.0.1-rc1 --prerelease`. Update All rebuilds and reinstalls; a world backup appears first (Show world backups in Finder); your worlds are still there.
 2. Switch the Apple TV off during Update All: it's marked pending, and Finish the Update installs it later.
-3. Installer update: a release with `--min-app` above the installed installer. The old installer stops before building and asks to update; Check for Updates… updates it through Sparkle.
+3. New installer: with a `3.0.0-rc1` pre-release out, the 2.x installer shows the alert once per launch and the banner on Game and Updates; Download opens the release page; Update All and Install Another Version… do nothing; Reinstall still works.
 4. Rollback: Install Another Version back to 1.0.0.
 5. Free Apple ID: Reinstall renews the 7 days.
 

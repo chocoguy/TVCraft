@@ -1,19 +1,21 @@
 # TVCraft Installer: the Mac app players download (signed with a Developer ID and notarized by
 # tools/release.sh). It builds TVCraft from their own Minecraft PE 0.8.1 APK at a GitHub release tag
-# and installs it on their Apple TVs, through scripts/tvcraft.py; Sparkle updates the installer
-# itself. Derived from Frontline Rewritten's installer (CREDITS.md).
+# and installs it on their Apple TVs, through scripts/tvcraft.py. It doesn't update itself: a new
+# major version (N.0.0) is a new installer, and it builds only N.x.y releases. Derived from Frontline
+# Rewritten's installer (CREDITS.md).
 #
-# The app needs the Xcode generator (it embeds Sparkle.framework); its logic (no UI) is tested with
-# any generator: CMakePresets.json has both.
+# The app needs the Xcode generator (its asset catalog); its logic (no UI) is tested with any
+# generator: CMakePresets.json has both.
 cmake_minimum_required(VERSION 3.28)
 
 # Apple silicon only, like the game's build. These have to be set before project().
 set(CMAKE_OSX_ARCHITECTURES arm64 CACHE STRING "")
 set(CMAKE_OSX_DEPLOYMENT_TARGET 26.0 CACHE STRING "Minimum macOS version")
 
-# The release being built: tools/release.sh passes the version (1.0.0, or 1.0.0-rc1) and its commit.
-# The bundle's short version is the numeric part, its build number major*10000+minor*100+patch, and
-# TVCraftVersion (the full version) is what port.json's minAppVersion is compared with.
+# The release the installer is built for: tools/release.sh passes the N.0.0 version (or N.0.0-rc1) and
+# its commit. The bundle's short version is the numeric part, its build number
+# major*10000+minor*100+patch, and TVCraftVersion (the full version) gives the major version of the
+# releases it builds.
 set(TVCRAFT_VERSION "0.0.1" CACHE STRING "The installer's version (the tag without its v)")
 set(TVCRAFT_COMMIT "" CACHE STRING "The commit built (short hash)")
 if(NOT TVCRAFT_VERSION MATCHES "^([0-9]+)\\.([0-9]+)\\.([0-9]+)(-[0-9A-Za-z.]+)?$")
@@ -39,25 +41,11 @@ if(NOT CMAKE_GENERATOR STREQUAL "Xcode")
     return()
 endif()
 
-include(FetchContent)
-
-# Sparkle, pinned: the release tarball's SHA-256 is GitHub's digest for it.
-FetchContent_Declare(sparkle
-    URL https://github.com/sparkle-project/Sparkle/releases/download/2.10.1/Sparkle-2.10.1.tar.xz
-    URL_HASH SHA256=1a856d2a9edb8e628de88121d7be04cf0e2167f8641650b78fca00b14244cf27
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-    SOURCE_SUBDIR no-cmake)
-FetchContent_MakeAvailable(sparkle)
-set(TVCRAFT_SPARKLE_DIR "${sparkle_SOURCE_DIR}" CACHE INTERNAL "Sparkle's framework and tools (bin/)")
-
 set(TVCRAFT_INSTALLER_BUNDLE_ID "com.vanillacoffeesoft.TVCraftInstaller"
     CACHE STRING "Bundle identifier for TVCraft Installer")
 # Ad hoc for local builds; tools/release.sh signs with "Developer ID Application".
 set(TVCRAFT_INSTALLER_SIGN_IDENTITY "-" CACHE STRING "Code signing identity for TVCraft Installer")
 set(TVCRAFT_DEVELOPMENT_TEAM "" CACHE STRING "The Developer ID's team (tools/release.sh passes it)")
-# Sparkle's public EdDSA key (generate_keys prints it; sparkle-public-key.txt has it). Empty in local
-# builds, which then never start Sparkle, so they never offer to update themselves.
-set(TVCRAFT_SPARKLE_PUBLIC_KEY "" CACHE STRING "Sparkle's public EdDSA key for the installer's updates")
 
 set(_sources
     Sources/AppModel.swift
@@ -71,8 +59,9 @@ set(_sources
     Sources/Source.swift
     Sources/Views.swift
     Sources/Workspace.swift)
-add_executable(TVCraftInstaller MACOSX_BUNDLE ${_sources} AppIcon.icns)
-set_source_files_properties(AppIcon.icns PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+# Assets.xcassets has AccentColor (#C6E9AF light, #2D5DA4 dark).
+add_executable(TVCraftInstaller MACOSX_BUNDLE ${_sources} AppIcon.icns Assets.xcassets)
+set_source_files_properties(AppIcon.icns Assets.xcassets PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
 
 set_target_properties(TVCraftInstaller PROPERTIES
     OUTPUT_NAME "TVCraft Installer"
@@ -89,11 +78,7 @@ set_target_properties(TVCraftInstaller PROPERTIES
     XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "${TVCRAFT_DEVELOPMENT_TEAM}"
     XCODE_ATTRIBUTE_ENABLE_HARDENED_RUNTIME YES
     XCODE_ATTRIBUTE_OTHER_CODE_SIGN_FLAGS "--timestamp"
-    XCODE_ATTRIBUTE_FRAMEWORK_SEARCH_PATHS "${sparkle_SOURCE_DIR}"
-    XCODE_ATTRIBUTE_LD_RUNPATH_SEARCH_PATHS "@executable_path/../Frameworks"
-    XCODE_EMBED_FRAMEWORKS "${sparkle_SOURCE_DIR}/Sparkle.framework"
-    XCODE_EMBED_FRAMEWORKS_CODE_SIGN_ON_COPY YES
-    XCODE_EMBED_FRAMEWORKS_REMOVE_HEADERS_ON_COPY YES
+    XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME AccentColor
     XCODE_GENERATE_SCHEME ON)
 if(TVCRAFT_INSTALLER_SIGN_IDENTITY STREQUAL "-")
     # No timestamp server for ad hoc signatures.
@@ -101,6 +86,5 @@ if(TVCRAFT_INSTALLER_SIGN_IDENTITY STREQUAL "-")
 endif()
 
 target_link_libraries(TVCraftInstaller PRIVATE
-    "${sparkle_SOURCE_DIR}/Sparkle.framework"
     "-framework AppKit"
     "-framework SwiftUI")
